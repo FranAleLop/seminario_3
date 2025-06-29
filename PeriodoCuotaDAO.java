@@ -12,21 +12,16 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 
-public class PeriodoCuotaDAO {
+// Implementamos la interfaz IDAO, especificando que trabajamos con PeriodoCuota y su ID es Integer
+public class PeriodoCuotaDAO implements IDAO<PeriodoCuota, Integer> {
 
-    /**
-     * Inserta un nuevo período de cuota en la base de datos.
-     * @param periodo El objeto PeriodoCuota a insertar.
-     * @return El objeto PeriodoCuota con el ID generado asignado.
-     * @throws SQLException Si ocurre un error de base de datos.
-     */
-    public PeriodoCuota crear(PeriodoCuota periodo) throws SQLException { // Cambiamos el nombre a 'crear' para consistencia
-        // Ajustamos la sentencia SQL para que coincida con la tabla 'periodos_cuotas' en nuestro esquema MySQL.
+    @Override // Indica que este método implementa un método de la interfaz IDAO
+    public PeriodoCuota crear(PeriodoCuota periodo) throws SQLException {
         // Columnas en BD: id_periodo_cuota, nombre_periodo, fecha_inicio, fecha_fin, fecha_vencimiento, monto_base, monto_recargo
         String sql = "INSERT INTO periodos_cuotas (nombre_periodo, fecha_inicio, fecha_fin, fecha_vencimiento, monto_base, monto_recargo) VALUES (?, ?, ?, ?, ?, ?)";
         
         try (Connection conn = DatabaseConnection.getConnection();
-             PreparedStatement pstmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) { // Usamos Statement para claridad
+             PreparedStatement pstmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
 
             pstmt.setString(1, periodo.getNombrePeriodo());
             pstmt.setDate(2, java.sql.Date.valueOf(periodo.getFechaInicio())); // Convertir LocalDate a java.sql.Date
@@ -38,7 +33,7 @@ public class PeriodoCuotaDAO {
             int filasAfectadas = pstmt.executeUpdate();
 
             if (filasAfectadas == 0) {
-                throw new SQLException("La creación del período de cuota falló, no se insertaron filas.");
+                throw new SQLException("La creación del período de cuota falló, no se insertaron filas en la base de datos.");
             }
             
             try (ResultSet rs = pstmt.getGeneratedKeys()) {
@@ -46,22 +41,17 @@ public class PeriodoCuotaDAO {
                     periodo.setIdPeriodo(rs.getInt(1)); // Asignar el ID al objeto PeriodoCuota
                     System.out.println("Período de cuota insertado con ID: " + periodo.getIdPeriodo());
                 } else {
-                    throw new SQLException("La creación del período de cuota falló, no se obtuvo ID generado.");
+                    throw new SQLException("La creación del período de cuota falló, no se obtuvo ID generado de la base de datos.");
                 }
             }
+        } catch (SQLException e) {
+            throw new SQLException("Error al crear el período de cuota en la base de datos: " + e.getMessage(), e);
         }
         return periodo;
     }
 
-    /**
-     * Obtiene un período de cuota por su ID.
-     * @param id El ID del período a buscar.
-     * @return El objeto PeriodoCuota si se encuentra, o null si no existe.
-     * @throws SQLException Si ocurre un error de base de datos.
-     */
-    public PeriodoCuota obtenerPorId(int id) throws SQLException {
-        // Seleccionamos las columnas según el esquema MySQL
-        // id_periodo_cuota, nombre_periodo, fecha_inicio, fecha_fin, fecha_vencimiento, monto_base, monto_recargo
+    @Override // Indica que este método implementa un método de la interfaz IDAO
+    public PeriodoCuota obtenerPorId(Integer id) throws SQLException { // Usamos Integer para consistencia con la interfaz
         String sql = "SELECT id_periodo_cuota, nombre_periodo, fecha_inicio, fecha_fin, fecha_vencimiento, monto_base, monto_recargo FROM periodos_cuotas WHERE id_periodo_cuota = ?";
         PeriodoCuota periodo = null;
 
@@ -72,29 +62,18 @@ public class PeriodoCuotaDAO {
             
             try (ResultSet rs = pstmt.executeQuery()) {
                 if (rs.next()) {
-                    periodo = new PeriodoCuota(
-                        rs.getInt("id_periodo_cuota"), // En la BD es 'id_periodo_cuota', no 'id_periodo'
-                        rs.getString("nombre_periodo"),
-                        rs.getDate("fecha_inicio").toLocalDate(), // Convertir java.sql.Date a LocalDate
-                        rs.getDate("fecha_fin").toLocalDate(),
-                        rs.getDate("fecha_vencimiento").toLocalDate(),
-                        rs.getDouble("monto_base"),
-                        rs.getDouble("monto_recargo")
-                    );
+                    periodo = mapResultSetToPeriodoCuota(rs); // Usamos el método auxiliar
                 }
             }
+        } catch (SQLException e) {
+            throw new SQLException("Error al obtener el período de cuota con ID " + id + " de la base de datos: " + e.getMessage(), e);
         }
         return periodo;
     }
 
-    /**
-     * Obtiene una lista de todos los períodos de cuota.
-     * @return Una lista de objetos PeriodoCuota. Puede estar vacía si no hay períodos.
-     * @throws SQLException Si ocurre un error de base de datos.
-     */
+    @Override // Indica que este método implementa un método de la interfaz IDAO
     public List<PeriodoCuota> obtenerTodos() throws SQLException {
         List<PeriodoCuota> periodos = new ArrayList<>();
-        // Seleccionamos las columnas según el esquema MySQL
         String sql = "SELECT id_periodo_cuota, nombre_periodo, fecha_inicio, fecha_fin, fecha_vencimiento, monto_base, monto_recargo FROM periodos_cuotas";
 
         try (Connection conn = DatabaseConnection.getConnection();
@@ -104,18 +83,14 @@ public class PeriodoCuotaDAO {
             while (rs.next()) {
                 periodos.add(mapResultSetToPeriodoCuota(rs)); // Usamos el método auxiliar
             }
+        } catch (SQLException e) {
+            throw new SQLException("Error al obtener todos los períodos de cuota de la base de datos: " + e.getMessage(), e);
         }
         return periodos;
     }
 
-    /**
-     * Actualiza la información de un período de cuota existente.
-     * @param periodo El objeto PeriodoCuota con la información actualizada.
-     * @return true si la actualización fue exitosa, false de lo contrario.
-     * @throws SQLException Si ocurre un error de base de datos.
-     */
+    @Override // Indica que este método implementa un método de la interfaz IDAO
     public boolean actualizar(PeriodoCuota periodo) throws SQLException {
-        // Ajustamos la sentencia SQL para que coincida con la tabla 'periodos_cuotas' en MySQL.
         String sql = "UPDATE periodos_cuotas SET nombre_periodo = ?, fecha_inicio = ?, fecha_fin = ?, fecha_vencimiento = ?, monto_base = ?, monto_recargo = ? WHERE id_periodo_cuota = ?";
         int filasAfectadas = 0;
 
@@ -128,21 +103,18 @@ public class PeriodoCuotaDAO {
             pstmt.setDate(4, java.sql.Date.valueOf(periodo.getFechaVencimiento()));
             pstmt.setDouble(5, periodo.getMontoBase());
             pstmt.setDouble(6, periodo.getMontoRecargo());
-            pstmt.setInt(7, periodo.getIdPeriodo()); // Cláusula WHERE, asumo getIdPeriodo() devuelve el ID correcto
+            pstmt.setInt(7, periodo.getIdPeriodo()); 
 
             filasAfectadas = pstmt.executeUpdate();
+        } catch (SQLException e) {
+            throw new SQLException("Error al actualizar el período de cuota con ID " + periodo.getIdPeriodo() + ": " + e.getMessage(), e);
         }
         return filasAfectadas > 0;
     }
 
-    /**
-     * Elimina un período de cuota por su ID.
-     * @param id El ID del período a eliminar.
-     * @return true si la eliminación fue exitosa, false de lo contrario.
-     * @throws SQLException Si ocurre un error de base de datos.
-     */
-    public boolean eliminar(int id) throws SQLException {
-        String sql = "DELETE FROM periodos_cuotas WHERE id_periodo_cuota = ?"; // Nombre de tabla en minúsculas y ID
+    @Override // Indica que este método implementa un método de la interfaz IDAO
+    public boolean eliminar(Integer id) throws SQLException { // Usamos Integer para consistencia con la interfaz
+        String sql = "DELETE FROM periodos_cuotas WHERE id_periodo_cuota = ?"; 
         int filasAfectadas = 0;
 
         try (Connection conn = DatabaseConnection.getConnection();
@@ -151,11 +123,13 @@ public class PeriodoCuotaDAO {
             pstmt.setInt(1, id);
 
             filasAfectadas = pstmt.executeUpdate();
+        } catch (SQLException e) {
+            throw new SQLException("Error al eliminar el período de cuota con ID " + id + ": " + e.getMessage(), e);
         }
         return filasAfectadas > 0;
     }
 
-    // --- Consultas específicas de la BD ---
+    //Consultas Específicas de la Base de Datos
 
     /**
      * Obtiene una lista de períodos de cuota anteriores a un mes específico.
@@ -166,8 +140,6 @@ public class PeriodoCuotaDAO {
      */
     public List<PeriodoCuota> obtenerPeriodosAnterioresA(YearMonth mesActual) throws SQLException {
         List<PeriodoCuota> periodos = new ArrayList<>();
-        // Para MySQL, comparamos la fecha_fin con el primer día del mes actual.
-        // O si queremos meses completos anteriores, podemos comparar el año y el mes de fecha_fin.
         String sql = "SELECT id_periodo_cuota, nombre_periodo, fecha_inicio, fecha_fin, fecha_vencimiento, monto_base, monto_recargo FROM periodos_cuotas WHERE YEAR(fecha_fin) < ? OR (YEAR(fecha_fin) = ? AND MONTH(fecha_fin) < ?)";
 
         try (Connection conn = DatabaseConnection.getConnection();
@@ -182,54 +154,64 @@ public class PeriodoCuotaDAO {
                     periodos.add(mapResultSetToPeriodoCuota(rs));
                 }
             }
+        } catch (SQLException e) {
+            throw new SQLException("Error al obtener períodos de cuota anteriores a " + mesActual + ": " + e.getMessage(), e);
         }
         return periodos;
     }
     
     /**
      * Obtiene el período de cuota activo o el más reciente si no hay uno activo.
-     * Un período "activo" podría definirse como aquel cuya fecha actual cae entre fecha_inicio y fecha_fin,
-     * o simplemente el más reciente si solo hay uno.
-     * Para esta implementación, buscaremos el período cuya fecha de inicio es la más reciente
-     * y no ha finalizado (o finalizó más recientemente).
+     * Un período "activo" se define como aquel cuya fecha actual (o la fecha del sistema)
+     * cae entre `fecha_inicio` y `fecha_fin`.
+     * Si no se encuentra un período activo, el método busca el período más reciente
+     * basándose en su `fecha_fin` y luego `fecha_inicio`.
      *
-     * @return El objeto PeriodoCuota activo/más reciente, o null si no se encuentra.
+     * @return El objeto PeriodoCuota activo o el más reciente, o null si no se encuentra ninguno.
      * @throws SQLException Si ocurre un error de base de datos.
      */
     public PeriodoCuota obtenerPeriodoActivoOMasReciente() throws SQLException {
-        // Esta consulta intenta encontrar un período que esté actualmente "activo"
-        // (fecha actual entre fecha_inicio y fecha_fin).
-        // Si no hay ninguno, obtiene el período con la fecha de fin más reciente.
-        String sql = "SELECT id_periodo_cuota, nombre_periodo, fecha_inicio, fecha_fin, fecha_vencimiento, monto_base, monto_recargo " +
-                     "FROM periodos_cuotas " +
-                     "WHERE ? BETWEEN fecha_inicio AND fecha_fin " + // Busca período activo
-                     "ORDER BY fecha_inicio DESC, fecha_fin DESC " + // Si no hay activo, el más reciente
-                     "LIMIT 1";
-        
         PeriodoCuota periodo = null;
-        LocalDate hoy = LocalDate.now(); // Fecha actual
+        // Obtenemos la fecha actual, considerando la zona horaria de Salta, Argentina.
+        // Aunque `LocalDate.now()` usa la zona horaria predeterminada, para una aplicación de producción
+        // y mayor precisión, se podría especificar una zona horaria explícita.
+        // Para este contexto, `LocalDate.now()` es suficiente.
+        LocalDate hoy = LocalDate.now(); 
 
+        // Primero, intentamos encontrar un período que esté activo hoy
+        String sqlActivo = "SELECT id_periodo_cuota, nombre_periodo, fecha_inicio, fecha_fin, fecha_vencimiento, monto_base, monto_recargo " +
+                            "FROM periodos_cuotas " +
+                            "WHERE ? BETWEEN fecha_inicio AND fecha_fin " + 
+                            "LIMIT 1"; // Solo necesitamos uno si hay múltiples activos (ej. solapamiento, aunque no deseable)
+        
         try (Connection conn = DatabaseConnection.getConnection();
-             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+             PreparedStatement pstmtActivo = conn.prepareStatement(sqlActivo)) {
 
-            pstmt.setDate(1, java.sql.Date.valueOf(hoy));
+            pstmtActivo.setDate(1, java.sql.Date.valueOf(hoy));
             
-            try (ResultSet rs = pstmt.executeQuery()) {
-                if (rs.next()) {
-                    periodo = mapResultSetToPeriodoCuota(rs);
-                } else {
-                    // Si no se encuentra un período activo para hoy, busca el más reciente finalizado o por iniciar
-                    String fallbackSql = "SELECT id_periodo_cuota, nombre_periodo, fecha_inicio, fecha_fin, fecha_vencimiento, monto_base, monto_recargo " +
-                                         "FROM periodos_cuotas " +
-                                         "ORDER BY fecha_fin DESC, fecha_inicio DESC " +
-                                         "LIMIT 1";
-                    try (PreparedStatement fallbackPstmt = conn.prepareStatement(fallbackSql);
-                         ResultSet fallbackRs = fallbackPstmt.executeQuery()) {
-                        if (fallbackRs.next()) {
-                            periodo = mapResultSetToPeriodoCuota(fallbackRs);
-                        }
-                    }
+            try (ResultSet rsActivo = pstmtActivo.executeQuery()) {
+                if (rsActivo.next()) {
+                    periodo = mapResultSetToPeriodoCuota(rsActivo);
                 }
+            }
+        } catch (SQLException e) {
+            throw new SQLException("Error al buscar el período de cuota activo: " + e.getMessage(), e);
+        }
+
+        // Si no se encontró un período activo, buscamos el más reciente finalizado o por iniciar
+        if (periodo == null) {
+            String sqlMasReciente = "SELECT id_periodo_cuota, nombre_periodo, fecha_inicio, fecha_fin, fecha_vencimiento, monto_base, monto_recargo " +
+                                    "FROM periodos_cuotas " +
+                                    "ORDER BY fecha_fin DESC, fecha_inicio DESC " +
+                                    "LIMIT 1";
+            try (Connection conn = DatabaseConnection.getConnection(); // Abrir una nueva conexión o reutilizar si es seguro.
+                 PreparedStatement pstmtMasReciente = conn.prepareStatement(sqlMasReciente);
+                 ResultSet rsMasReciente = pstmtMasReciente.executeQuery()) {
+                if (rsMasReciente.next()) {
+                    periodo = mapResultSetToPeriodoCuota(rsMasReciente);
+                }
+            } catch (SQLException e) {
+                throw new SQLException("Error al buscar el período de cuota más reciente (fallback): " + e.getMessage(), e);
             }
         }
         return periodo;
@@ -245,7 +227,7 @@ public class PeriodoCuotaDAO {
      */
     private PeriodoCuota mapResultSetToPeriodoCuota(ResultSet rs) throws SQLException {
         // Asegúrate de que los nombres de las columnas coincidan con tu base de datos.
-        // En tu esquema DB, la PK es 'id_periodo_cuota', no 'id_periodo'
+        // En tu esquema DB, la PK es 'id_periodo_cuota'
         int idPeriodo = rs.getInt("id_periodo_cuota"); 
         String nombrePeriodo = rs.getString("nombre_periodo");
         LocalDate fechaInicio = rs.getDate("fecha_inicio").toLocalDate();

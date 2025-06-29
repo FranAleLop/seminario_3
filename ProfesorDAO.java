@@ -10,21 +10,16 @@ import java.time.LocalDate; // Importación correcta
 import java.util.ArrayList;
 import java.util.List;
 
-public class ProfesorDAO {
+// Implementamos la interfaz IDAO, especificando que trabajamos con Profesor y su ID es Integer
+public class ProfesorDAO implements IDAO<Profesor, Integer> {
 
-    /**
-     * Inserta un nuevo profesor en la base de datos.
-     * @param profesor El objeto Profesor a insertar.
-     * @return El objeto Profesor con el ID generado asignado.
-     * @throws SQLException Si ocurre un error de base de datos.
-     */
-    public Profesor crear(Profesor profesor) throws SQLException { // Cambiamos el nombre a 'crear' para consistencia
-        // Ajustamos la sentencia SQL para que coincida con la tabla 'profesores' en nuestro esquema MySQL.
+    @Override // Indica que este método implementa un método de la interfaz IDAO
+    public Profesor crear(Profesor profesor) throws SQLException {
         // Columnas en BD: id_profesor, nombre_completo, dni, fecha_nacimiento, direccion, telefono, email, fecha_contratacion, activo
         String sql = "INSERT INTO profesores (nombre_completo, dni, fecha_nacimiento, direccion, telefono, email, fecha_contratacion, activo) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
         
         try (Connection conn = DatabaseConnection.getConnection();
-             PreparedStatement pstmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) { // Usamos Statement para claridad
+             PreparedStatement pstmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
 
             pstmt.setString(1, profesor.getNombreCompleto());
             pstmt.setString(2, profesor.getDni());
@@ -38,7 +33,7 @@ public class ProfesorDAO {
             int filasAfectadas = pstmt.executeUpdate();
 
             if (filasAfectadas == 0) {
-                throw new SQLException("La creación del profesor falló, no se insertaron filas.");
+                throw new SQLException("La creación del profesor falló, no se insertaron filas en la base de datos.");
             }
             
             try (ResultSet rs = pstmt.getGeneratedKeys()) {
@@ -46,20 +41,17 @@ public class ProfesorDAO {
                     profesor.setIdProfesor(rs.getInt(1)); // Asignar el ID al objeto Profesor
                     System.out.println("Profesor insertado con ID: " + profesor.getIdProfesor());
                 } else {
-                    throw new SQLException("La creación del profesor falló, no se obtuvo ID generado.");
+                    throw new SQLException("La creación del profesor falló, no se obtuvo ID generado de la base de datos.");
                 }
             }
+        } catch (SQLException e) {
+            throw new SQLException("Error al crear el profesor en la base de datos: " + e.getMessage(), e);
         }
         return profesor;
     }
 
-    /**
-     * Obtiene un profesor por su ID.
-     * @param id El ID del profesor a buscar.
-     * @return El objeto Profesor si se encuentra, o null si no existe.
-     * @throws SQLException Si ocurre un error de base de datos.
-     */
-    public Profesor obtenerPorId(int id) throws SQLException {
+    @Override // Indica que este método implementa un método de la interfaz IDAO
+    public Profesor obtenerPorId(Integer id) throws SQLException { // Usamos Integer para consistencia con la interfaz
         // Seleccionamos las columnas según el esquema MySQL
         // id_profesor, nombre_completo, dni, fecha_nacimiento, direccion, telefono, email, fecha_contratacion, activo
         String sql = "SELECT id_profesor, nombre_completo, dni, fecha_nacimiento, direccion, telefono, email, fecha_contratacion, activo FROM profesores WHERE id_profesor = ?";
@@ -75,15 +67,13 @@ public class ProfesorDAO {
                     profesor = mapResultSetToProfesor(rs); // Usamos el método auxiliar
                 }
             }
+        } catch (SQLException e) {
+            throw new SQLException("Error al obtener el profesor con ID " + id + " de la base de datos: " + e.getMessage(), e);
         }
         return profesor;
     }
 
-    /**
-     * Obtiene una lista de todos los profesores.
-     * @return Una lista de objetos Profesor. Puede estar vacía si no hay profesores.
-     * @throws SQLException Si ocurre un error de base de datos.
-     */
+    @Override // Indica que este método implementa un método de la interfaz IDAO
     public List<Profesor> obtenerTodos() throws SQLException {
         List<Profesor> profesores = new ArrayList<>();
         // Seleccionamos las columnas según el esquema MySQL
@@ -96,16 +86,13 @@ public class ProfesorDAO {
             while (rs.next()) {
                 profesores.add(mapResultSetToProfesor(rs)); // Usamos el método auxiliar
             }
+        } catch (SQLException e) {
+            throw new SQLException("Error al obtener todos los profesores de la base de datos: " + e.getMessage(), e);
         }
         return profesores;
     }
 
-    /**
-     * Actualiza la información de un profesor existente.
-     * @param profesor El objeto Profesor con la información actualizada.
-     * @return true si la actualización fue exitosa, false de lo contrario.
-     * @throws SQLException Si ocurre un error de base de datos.
-     */
+    @Override // Indica que este método implementa un método de la interfaz IDAO
     public boolean actualizar(Profesor profesor) throws SQLException {
         // Ajustamos la sentencia SQL para que coincida con la tabla 'profesores' en MySQL.
         String sql = "UPDATE profesores SET nombre_completo = ?, dni = ?, fecha_nacimiento = ?, direccion = ?, telefono = ?, email = ?, fecha_contratacion = ?, activo = ? WHERE id_profesor = ?";
@@ -125,17 +112,14 @@ public class ProfesorDAO {
             pstmt.setInt(9, profesor.getIdProfesor()); // Cláusula WHERE
 
             filasAfectadas = pstmt.executeUpdate();
+        } catch (SQLException e) {
+            throw new SQLException("Error al actualizar el profesor con ID " + profesor.getIdProfesor() + ": " + e.getMessage(), e);
         }
         return filasAfectadas > 0;
     }
 
-    /**
-     * Elimina un profesor por su ID.
-     * @param id El ID del profesor a eliminar.
-     * @return true si la eliminación fue exitosa, false de lo contrario.
-     * @throws SQLException Si ocurre un error de base de datos.
-     */
-    public boolean eliminar(int id) throws SQLException {
+    @Override // Indica que este método implementa un método de la interfaz IDAO
+    public boolean eliminar(Integer id) throws SQLException { // Usamos Integer para consistencia con la interfaz
         String sql = "DELETE FROM profesores WHERE id_profesor = ?"; // Nombre de tabla en minúsculas
         int filasAfectadas = 0;
 
@@ -145,11 +129,13 @@ public class ProfesorDAO {
             pstmt.setInt(1, id);
 
             filasAfectadas = pstmt.executeUpdate();
+        } catch (SQLException e) {
+            throw new SQLException("Error al eliminar el profesor con ID " + id + ": " + e.getMessage(), e);
         }
         return filasAfectadas > 0;
     }
 
-    // --- Consultas específicas de la BD ---
+   // Consultas Específicas de la Base de Datos
 
     /**
      * Obtiene una lista de todos los profesores que están activos.
@@ -167,6 +153,8 @@ public class ProfesorDAO {
             while (rs.next()) {
                 profesoresActivos.add(mapResultSetToProfesor(rs));
             }
+        } catch (SQLException e) {
+            throw new SQLException("Error al obtener profesores activos: " + e.getMessage(), e);
         }
         return profesoresActivos;
     }
@@ -190,6 +178,8 @@ public class ProfesorDAO {
                     profesoresEncontrados.add(mapResultSetToProfesor(rs));
                 }
             }
+        } catch (SQLException e) {
+            throw new SQLException("Error al buscar profesores por nombre: " + e.getMessage(), e);
         }
         return profesoresEncontrados;
     }

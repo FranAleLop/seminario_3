@@ -9,23 +9,21 @@ import java.sql.Statement; // Necesario para Statement.RETURN_GENERATED_KEYS
 import java.util.ArrayList;
 import java.util.List;
 
-// Importar una librería de hashing de contraseñas.
-// Para esto necesitarás añadir una dependencia a tu proyecto, por ejemplo, BCrypt.
-// Ejemplo con BCrypt (necesitarías la librería jBCrypt en tu pom.xml o build.gradle):
+// Importar una librería de hashing de contraseñas (ej. BCrypt) si la usas en la capa de servicio
 // import org.mindrot.jbcrypt.BCrypt;
-// O si estás usando Spring Security, podrías usar su PasswordEncoder.
 
-public class UsuarioDAO {
+// Implementamos la interfaz IDAO, especificando que trabajamos con Usuario y su ID es Integer
+public class UsuarioDAO implements IDAO<Usuario, Integer> {
 
     /**
      * Inserta un nuevo usuario en la base de datos.
-     * La contraseña se debe hashear ANTES de ser almacenada.
+     * La contraseña se asume que ha sido hasheada ANTES de ser pasada a este método (por ejemplo, en una capa de servicio).
      * @param usuario El objeto Usuario a insertar.
      * @return El objeto Usuario con el ID generado asignado.
      * @throws SQLException Si ocurre un error de base de datos.
      */
-    public Usuario crear(Usuario usuario) throws SQLException { // Cambiamos el nombre a 'crear' para consistencia
-        // Ajustamos la sentencia SQL para que coincida con la tabla 'usuarios' en nuestro esquema MySQL.
+    @Override // Indica que este método implementa un método de la interfaz IDAO
+    public Usuario crear(Usuario usuario) throws SQLException {
         // Columnas en BD: id_usuario, nombre_usuario, contrasena_hash, rol, activo
         String sql = "INSERT INTO usuarios (nombre_usuario, contrasena_hash, rol, activo) VALUES (?, ?, ?, ?)";
         
@@ -34,24 +32,19 @@ public class UsuarioDAO {
 
             pstmt.setString(1, usuario.getNombreUsuario());
             // CRÍTICO: La contraseña NUNCA debe almacenarse en texto plano.
-            // Asumo que tu modelo Usuario ya tiene la contraseña hasheada aquí,
-            // o que la lógica de hashing se realiza antes de llamar a este método.
-            // Si no es así, DEBES implementarlo aquí o en tu capa de servicio.
-            // Ejemplo (descomenta si usas BCrypt):
+            // Se asume que usuario.getContrasena() ya devuelve el hash de la contraseña.
+            // Si no es así, DEBES implementar el hashing antes de llamar a este DAO.
+            // Ejemplo de cómo se *podría* hashear aquí (aunque preferiblemente en una capa de servicio):
             // String hashedPass = BCrypt.hashpw(usuario.getContrasena(), BCrypt.gensalt());
             // pstmt.setString(2, hashedPass);
-            
-            // Por ahora, si tu modelo Usuario ya te da el hash (idealmente), lo usamos.
-            // Si Usuario.getContrasena() devuelve el texto plano, ESTO ES UNA VULNERABILIDAD.
-            pstmt.setString(2, usuario.getContrasena()); // Asumo que getContrasena() ahora devuelve el hash.
-                                                        // Renombra el campo a 'contrasena_hash' en tu modelo Usuario si es un hash.
+            pstmt.setString(2, usuario.getContrasena()); 
             pstmt.setString(3, usuario.getRol());
             pstmt.setBoolean(4, usuario.isActivo());
 
             int filasAfectadas = pstmt.executeUpdate();
 
             if (filasAfectadas == 0) {
-                throw new SQLException("La creación del usuario falló, no se insertaron filas.");
+                throw new SQLException("La creación del usuario falló, no se insertaron filas en la base de datos.");
             }
             
             try (ResultSet rs = pstmt.getGeneratedKeys()) {
@@ -59,9 +52,11 @@ public class UsuarioDAO {
                     usuario.setIdUsuario(rs.getInt(1)); // Asignar el ID al objeto Usuario
                     System.out.println("Usuario insertado con ID: " + usuario.getIdUsuario());
                 } else {
-                    throw new SQLException("La creación del usuario falló, no se obtuvo ID generado.");
+                    throw new SQLException("La creación del usuario falló, no se obtuvo ID generado de la base de datos.");
                 }
             }
+        } catch (SQLException e) {
+            throw new SQLException("Error al crear el usuario '" + usuario.getNombreUsuario() + "' en la base de datos: " + e.getMessage(), e);
         }
         return usuario;
     }
@@ -72,7 +67,8 @@ public class UsuarioDAO {
      * @return El objeto Usuario si se encuentra, o null si no existe.
      * @throws SQLException Si ocurre un error de base de datos.
      */
-    public Usuario obtenerPorId(int id) throws SQLException {
+    @Override // Indica que este método implementa un método de la interfaz IDAO
+    public Usuario obtenerPorId(Integer id) throws SQLException { // Usamos Integer para consistencia con la interfaz
         // Seleccionamos las columnas según el esquema MySQL
         // id_usuario, nombre_usuario, contrasena_hash, rol, activo
         String sql = "SELECT id_usuario, nombre_usuario, contrasena_hash, rol, activo FROM usuarios WHERE id_usuario = ?";
@@ -88,6 +84,8 @@ public class UsuarioDAO {
                     usuario = mapResultSetToUsuario(rs); // Usamos el método auxiliar
                 }
             }
+        } catch (SQLException e) {
+            throw new SQLException("Error al obtener el usuario con ID " + id + " de la base de datos: " + e.getMessage(), e);
         }
         return usuario;
     }
@@ -114,6 +112,8 @@ public class UsuarioDAO {
                     usuario = mapResultSetToUsuario(rs); // Usamos el método auxiliar
                 }
             }
+        } catch (SQLException e) {
+            throw new SQLException("Error al obtener el usuario por nombre '" + nombreUsuario + "' de la base de datos: " + e.getMessage(), e);
         }
         return usuario;
     }
@@ -123,6 +123,7 @@ public class UsuarioDAO {
      * @return Una lista de objetos Usuario. Puede estar vacía si no hay usuarios.
      * @throws SQLException Si ocurre un error de base de datos.
      */
+    @Override // Indica que este método implementa un método de la interfaz IDAO
     public List<Usuario> obtenerTodos() throws SQLException {
         List<Usuario> usuarios = new ArrayList<>();
         // Seleccionamos las columnas según el esquema MySQL, incluyendo contrasena_hash
@@ -135,6 +136,8 @@ public class UsuarioDAO {
             while (rs.next()) {
                 usuarios.add(mapResultSetToUsuario(rs)); // Usamos el método auxiliar
             }
+        } catch (SQLException e) {
+            throw new SQLException("Error al obtener todos los usuarios de la base de datos: " + e.getMessage(), e);
         }
         return usuarios;
     }
@@ -142,12 +145,12 @@ public class UsuarioDAO {
     /**
      * Actualiza la información de un usuario existente.
      * NOTA IMPORTANTE: Si la contraseña se actualiza, DEBE ser hasheada antes de llamar a este método.
-     * Si no se va a actualizar la contraseña, considera tener un método `actualizarSinContrasena` o
-     * asegurar que `usuario.getContrasena()` devuelva el hash actual.
+     * Se asume que `usuario.getContrasena()` ya devuelve el hash actual (nueva o existente).
      * @param usuario El objeto Usuario con la información actualizada.
      * @return true si la actualización fue exitosa, false de lo contrario.
      * @throws SQLException Si ocurre un error de base de datos.
      */
+    @Override // Indica que este método implementa un método de la interfaz IDAO
     public boolean actualizar(Usuario usuario) throws SQLException {
         // Ajustamos la sentencia SQL para que coincida con la tabla 'usuarios' en MySQL.
         // La columna de contraseña debe ser 'contrasena_hash'.
@@ -165,6 +168,8 @@ public class UsuarioDAO {
             pstmt.setInt(5, usuario.getIdUsuario());
 
             filasAfectadas = pstmt.executeUpdate();
+        } catch (SQLException e) {
+            throw new SQLException("Error al actualizar el usuario con ID " + usuario.getIdUsuario() + ": " + e.getMessage(), e);
         }
         return filasAfectadas > 0;
     }
@@ -175,7 +180,8 @@ public class UsuarioDAO {
      * @return true si la eliminación fue exitosa, false de lo contrario.
      * @throws SQLException Si ocurre un error de base de datos.
      */
-    public boolean eliminar(int id) throws SQLException {
+    @Override // Indica que este método implementa un método de la interfaz IDAO
+    public boolean eliminar(Integer id) throws SQLException { // Usamos Integer para consistencia con la interfaz
         String sql = "DELETE FROM usuarios WHERE id_usuario = ?"; // Nombre de tabla en minúsculas
         int filasAfectadas = 0;
 
@@ -185,11 +191,13 @@ public class UsuarioDAO {
             pstmt.setInt(1, id);
 
             filasAfectadas = pstmt.executeUpdate();
+        } catch (SQLException e) {
+            throw new SQLException("Error al eliminar el usuario con ID " + id + ": " + e.getMessage(), e);
         }
         return filasAfectadas > 0;
     }
 
-    // --- Consultas específicas de la BD ---
+    //Consultas Específicas de la Base de Datos
 
     /**
      * Verifica si existe un usuario con el nombre de usuario dado (para evitar duplicados).
@@ -207,6 +215,8 @@ public class UsuarioDAO {
                     return rs.getInt(1) > 0;
                 }
             }
+        } catch (SQLException e) {
+            throw new SQLException("Error al verificar la existencia del nombre de usuario '" + nombreUsuario + "': " + e.getMessage(), e);
         }
         return false;
     }
@@ -227,6 +237,8 @@ public class UsuarioDAO {
             while (rs.next()) {
                 usuariosActivos.add(mapResultSetToUsuario(rs));
             }
+        } catch (SQLException e) {
+            throw new SQLException("Error al obtener usuarios activos: " + e.getMessage(), e);
         }
         return usuariosActivos;
     }

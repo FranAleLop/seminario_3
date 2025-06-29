@@ -11,42 +11,35 @@ import java.time.LocalDate; // Necesario para LocalDate
 import java.util.ArrayList;
 import java.util.List;
 
-public class DocumentoEstadoDAO {
+// Implementamos la interfaz IDAO, especificando que trabajamos con DocumentoEstado y su ID es Integer
+public class DocumentoEstadoDAO implements IDAO<DocumentoEstado, Integer> {
 
-    /**
-     * Inserta un nuevo registro de estado de documento en la base de datos.
-     * @param documentoEstado El objeto DocumentoEstado a insertar.
-     * @return El objeto DocumentoEstado con el ID generado asignado.
-     * @throws SQLException Si ocurre un error de base de datos.
-     */
-    public DocumentoEstado crear(DocumentoEstado documentoEstado) throws SQLException { // Cambiamos el nombre a 'crear'
-        // Ajustamos la sentencia SQL para que coincida con la tabla 'documentos_estado' en nuestro esquema MySQL.
+    @Override // Indica que este método implementa un método de la interfaz IDAO
+    public DocumentoEstado crear(DocumentoEstado documentoEstado) throws SQLException {
         // Columnas en BD: id_documento, id_alumno, tipo_documento, fecha_presentacion, presentado, observaciones
-        // En tu DAO original: 'estado' (String)
-        // En nuestro esquema MySQL: 'presentado' (boolean) y 'fecha_presentacion' (DATE)
         String sql = "INSERT INTO documentos_estado (id_alumno, tipo_documento, fecha_presentacion, presentado, observaciones) VALUES (?, ?, ?, ?, ?)";
         
         try (Connection conn = DatabaseConnection.getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
 
             pstmt.setInt(1, documentoEstado.getIdAlumno());
-            // NOTA: 'tipo_documento' en tu modelo DocumentoEstado y en el DAO es un String.
-            // En la BD 'documentos_estado' también es 'tipo_documento' VARCHAR(100). Coincide bien.
             pstmt.setString(2, documentoEstado.getTipoDocumento());
 
-            // AQUI LA PRINCIPAL DIFERENCIA: Mapeo de estado String a boolean 'presentado' y fecha 'fecha_presentacion'
+            // Mapeo de estado String a boolean 'presentado' y fecha 'fecha_presentacion'
             boolean presentado = "Entregado".equalsIgnoreCase(documentoEstado.getEstado());
-            LocalDate fechaPresentacion = documentoEstado.getFechaPresentacion(); // Asumo que DocumentoEstado tiene getFechaPresentacion()
+            LocalDate fechaPresentacion = documentoEstado.getFechaPresentacion(); 
 
-            // Si el estado es "Entregado", guardamos la fecha de presentación. De lo contrario, null.
+            // Si el estado es "Entregado" Y hay fecha, la guardamos. De lo contrario, null.
+            // Es importante que si 'presentado' es true, 'fechaPresentacion' no sea null para asignar la fecha.
+            // Si 'presentado' es false, 'fechaPresentacion' siempre será null en la BD para este campo.
             pstmt.setDate(3, presentado && fechaPresentacion != null ? Date.valueOf(fechaPresentacion) : null);
-            pstmt.setBoolean(4, presentado); // El campo 'presentado' de la BD se basa en si el estado es "Entregado"
+            pstmt.setBoolean(4, presentado); 
             pstmt.setString(5, documentoEstado.getObservaciones());
 
             int filasAfectadas = pstmt.executeUpdate();
 
             if (filasAfectadas == 0) {
-                throw new SQLException("La creación del registro de documento falló, no se insertaron filas.");
+                throw new SQLException("La creación del registro de documento falló, no se insertaron filas en la base de datos.");
             }
 
             try (ResultSet rs = pstmt.getGeneratedKeys()) {
@@ -54,22 +47,17 @@ public class DocumentoEstadoDAO {
                     documentoEstado.setIdDocumento(rs.getInt(1)); // Asignar el ID generado al objeto
                     System.out.println("DocumentoEstado insertado con ID: " + documentoEstado.getIdDocumento());
                 } else {
-                    throw new SQLException("La creación del registro de documento falló, no se obtuvo ID generado.");
+                    throw new SQLException("La creación del registro de documento falló, no se obtuvo ID generado de la base de datos.");
                 }
             }
+        } catch (SQLException e) {
+            throw new SQLException("Error al crear el registro de documento en la base de datos: " + e.getMessage(), e);
         }
         return documentoEstado;
     }
 
-    /**
-     * Obtiene un registro de estado de documento por su ID.
-     * @param id El ID del registro a buscar.
-     * @return El objeto DocumentoEstado si se encuentra, o null si no existe.
-     * @throws SQLException Si ocurre un error de base de datos.
-     */
-    public DocumentoEstado obtenerPorId(int id) throws SQLException {
-        // Seleccionamos las columnas según el esquema MySQL
-        // id_documento (PK), id_alumno, tipo_documento, fecha_presentacion, presentado, observaciones
+    @Override // Indica que este método implementa un método de la interfaz IDAO
+    public DocumentoEstado obtenerPorId(Integer id) throws SQLException { // Usamos Integer para consistencia con la interfaz
         String sql = "SELECT id_documento, id_alumno, tipo_documento, fecha_presentacion, presentado, observaciones FROM documentos_estado WHERE id_documento = ?";
         DocumentoEstado documentoEstado = null;
 
@@ -80,29 +68,16 @@ public class DocumentoEstadoDAO {
             
             try (ResultSet rs = pstmt.executeQuery()) {
                 if (rs.next()) {
-                    LocalDate fechaPresentacion = rs.getDate("fecha_presentacion") != null ? rs.getDate("fecha_presentacion").toLocalDate() : null;
-                    boolean presentado = rs.getBoolean("presentado");
-                    String estado = presentado ? "Entregado" : "Pendiente"; // Mapear 'presentado' (boolean) a 'estado' (String)
-                    
-                    documentoEstado = new DocumentoEstado(
-                        rs.getInt("id_documento"), // En el schema DB es 'id_documento', no 'id_documento_estado'
-                        rs.getInt("id_alumno"),
-                        rs.getString("tipo_documento"),
-                        estado, // Mapeado de boolean 'presentado'
-                        fechaPresentacion, // Nueva propiedad
-                        rs.getString("observaciones")
-                    );
+                    documentoEstado = mapResultSetToDocumentoEstado(rs); // Usamos el método auxiliar de mapeo
                 }
             }
+        } catch (SQLException e) {
+            throw new SQLException("Error al obtener el registro de documento con ID " + id + " de la base de datos: " + e.getMessage(), e);
         }
         return documentoEstado;
     }
 
-    /**
-     * Obtiene una lista de todos los registros de estado de documentos.
-     * @return Una lista de objetos DocumentoEstado. Puede estar vacía si no hay registros.
-     * @throws SQLException Si ocurre un error de base de datos.
-     */
+    @Override // Indica que este método implementa un método de la interfaz IDAO
     public List<DocumentoEstado> obtenerTodos() throws SQLException {
         List<DocumentoEstado> documentosEstado = new ArrayList<>();
         String sql = "SELECT id_documento, id_alumno, tipo_documento, fecha_presentacion, presentado, observaciones FROM documentos_estado";
@@ -112,32 +87,16 @@ public class DocumentoEstadoDAO {
              ResultSet rs = pstmt.executeQuery()) {
 
             while (rs.next()) {
-                LocalDate fechaPresentacion = rs.getDate("fecha_presentacion") != null ? rs.getDate("fecha_presentacion").toLocalDate() : null;
-                boolean presentado = rs.getBoolean("presentado");
-                String estado = presentado ? "Entregado" : "Pendiente";
-                
-                DocumentoEstado doc = new DocumentoEstado(
-                    rs.getInt("id_documento"),
-                    rs.getInt("id_alumno"),
-                    rs.getString("tipo_documento"),
-                    estado,
-                    fechaPresentacion,
-                    rs.getString("observaciones")
-                );
-                documentosEstado.add(doc);
+                documentosEstado.add(mapResultSetToDocumentoEstado(rs)); // Usamos el método auxiliar de mapeo
             }
+        } catch (SQLException e) {
+            throw new SQLException("Error al obtener todos los registros de documentos de la base de datos: " + e.getMessage(), e);
         }
         return documentosEstado;
     }
 
-    /**
-     * Actualiza la información de un registro de estado de documento existente.
-     * @param documentoEstado El objeto DocumentoEstado con la información actualizada.
-     * @return true si la actualización fue exitosa, false de lo contrario.
-     * @throws SQLException Si ocurre un error de base de datos.
-     */
+    @Override // Indica que este método implementa un método de la interfaz IDAO
     public boolean actualizar(DocumentoEstado documentoEstado) throws SQLException {
-        // Columnas en BD: id_documento, id_alumno, tipo_documento, fecha_presentacion, presentado, observaciones
         String sql = "UPDATE documentos_estado SET id_alumno = ?, tipo_documento = ?, fecha_presentacion = ?, presentado = ?, observaciones = ? WHERE id_documento = ?";
         int filasAfectadas = 0;
 
@@ -153,21 +112,18 @@ public class DocumentoEstadoDAO {
             pstmt.setDate(3, presentado && fechaPresentacion != null ? Date.valueOf(fechaPresentacion) : null);
             pstmt.setBoolean(4, presentado);
             pstmt.setString(5, documentoEstado.getObservaciones());
-            pstmt.setInt(6, documentoEstado.getIdDocumento()); // 'id_documento', no 'id_documento_estado'
+            pstmt.setInt(6, documentoEstado.getIdDocumento()); 
 
             filasAfectadas = pstmt.executeUpdate();
+        } catch (SQLException e) {
+            throw new SQLException("Error al actualizar el registro de documento con ID " + documentoEstado.getIdDocumento() + ": " + e.getMessage(), e);
         }
         return filasAfectadas > 0;
     }
 
-    /**
-     * Elimina un registro de estado de documento por su ID.
-     * @param id El ID del registro a eliminar.
-     * @return true si la eliminación fue exitosa, false de lo contrario.
-     * @throws SQLException Si ocurre un error de base de datos.
-     */
-    public boolean eliminar(int id) throws SQLException {
-        String sql = "DELETE FROM documentos_estado WHERE id_documento = ?"; // 'documentos_estado' y 'id_documento'
+    @Override // Indica que este método implementa un método de la interfaz IDAO
+    public boolean eliminar(Integer id) throws SQLException { // Usamos Integer para consistencia con la interfaz
+        String sql = "DELETE FROM documentos_estado WHERE id_documento = ?"; 
         int filasAfectadas = 0;
 
         try (Connection conn = DatabaseConnection.getConnection();
@@ -176,6 +132,8 @@ public class DocumentoEstadoDAO {
             pstmt.setInt(1, id);
 
             filasAfectadas = pstmt.executeUpdate();
+        } catch (SQLException e) {
+            throw new SQLException("Error al eliminar el registro de documento con ID " + id + ": " + e.getMessage(), e);
         }
         return filasAfectadas > 0;
     }
@@ -190,7 +148,6 @@ public class DocumentoEstadoDAO {
      */
     public List<DocumentoEstado> obtenerDocumentosPendientesPorAlumno(int idAlumno) throws SQLException {
         List<DocumentoEstado> documentosPendientes = new ArrayList<>();
-        // En MySQL, 'presentado' es un BOOLEAN (TINYINT(1)). 'FALSE' es 0.
         String sql = "SELECT id_documento, id_alumno, tipo_documento, fecha_presentacion, presentado, observaciones FROM documentos_estado WHERE id_alumno = ? AND presentado = FALSE";
 
         try (Connection conn = DatabaseConnection.getConnection();
@@ -200,21 +157,11 @@ public class DocumentoEstadoDAO {
             
             try (ResultSet rs = pstmt.executeQuery()) {
                 while (rs.next()) {
-                    LocalDate fechaPresentacion = rs.getDate("fecha_presentacion") != null ? rs.getDate("fecha_presentacion").toLocalDate() : null;
-                    boolean presentado = rs.getBoolean("presentado");
-                    String estado = presentado ? "Entregado" : "Pendiente";
-                    
-                    DocumentoEstado doc = new DocumentoEstado(
-                        rs.getInt("id_documento"),
-                        rs.getInt("id_alumno"),
-                        rs.getString("tipo_documento"),
-                        estado,
-                        fechaPresentacion,
-                        rs.getString("observaciones")
-                    );
-                    documentosPendientes.add(doc);
+                    documentosPendientes.add(mapResultSetToDocumentoEstado(rs)); // Usamos el método auxiliar de mapeo
                 }
             }
+        } catch (SQLException e) {
+            throw new SQLException("Error al obtener documentos pendientes para el alumno con ID " + idAlumno + ": " + e.getMessage(), e);
         }
         return documentosPendientes;
     }
@@ -237,22 +184,34 @@ public class DocumentoEstadoDAO {
             
             try (ResultSet rs = pstmt.executeQuery()) {
                 while (rs.next()) {
-                    LocalDate fechaPresentacion = rs.getDate("fecha_presentacion") != null ? rs.getDate("fecha_presentacion").toLocalDate() : null;
-                    boolean presentado = rs.getBoolean("presentado");
-                    String estado = presentado ? "Entregado" : "Pendiente";
-                    
-                    DocumentoEstado doc = new DocumentoEstado(
-                        rs.getInt("id_documento"),
-                        rs.getInt("id_alumno"),
-                        rs.getString("tipo_documento"),
-                        estado,
-                        fechaPresentacion,
-                        rs.getString("observaciones")
-                    );
-                    documentos.add(doc);
+                    documentos.add(mapResultSetToDocumentoEstado(rs)); // Usamos el método auxiliar de mapeo
                 }
             }
+        } catch (SQLException e) {
+            throw new SQLException("Error al obtener documentos para el alumno con ID " + idAlumno + ": " + e.getMessage(), e);
         }
         return documentos;
+    }
+
+    /**
+     * Método auxiliar para mapear un ResultSet a un objeto DocumentoEstado.
+     * Centraliza la lógica de conversión de datos de la base de datos a objetos Java.
+     * @param rs El ResultSet que contiene los datos del registro de documento.
+     * @return Un objeto DocumentoEstado con los datos del ResultSet.
+     * @throws SQLException Si ocurre un error al leer del ResultSet.
+     */
+    private DocumentoEstado mapResultSetToDocumentoEstado(ResultSet rs) throws SQLException {
+        LocalDate fechaPresentacion = rs.getDate("fecha_presentacion") != null ? rs.getDate("fecha_presentacion").toLocalDate() : null;
+        boolean presentado = rs.getBoolean("presentado");
+        String estado = presentado ? "Entregado" : "Pendiente"; // Mapear 'presentado' (boolean) a 'estado' (String)
+        
+        return new DocumentoEstado(
+            rs.getInt("id_documento"), 
+            rs.getInt("id_alumno"),
+            rs.getString("tipo_documento"),
+            estado, // Mapeado de boolean 'presentado'
+            fechaPresentacion, 
+            rs.getString("observaciones")
+        );
     }
 }
