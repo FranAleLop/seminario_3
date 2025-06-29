@@ -5,42 +5,65 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement; // Necesario para Statement.RETURN_GENERATED_KEYS
 import java.util.ArrayList;
 import java.util.List;
+
+// Importar una librería de hashing de contraseñas.
+// Para esto necesitarás añadir una dependencia a tu proyecto, por ejemplo, BCrypt.
+// Ejemplo con BCrypt (necesitarías la librería jBCrypt en tu pom.xml o build.gradle):
+// import org.mindrot.jbcrypt.BCrypt;
+// O si estás usando Spring Security, podrías usar su PasswordEncoder.
 
 public class UsuarioDAO {
 
     /**
      * Inserta un nuevo usuario en la base de datos.
+     * La contraseña se debe hashear ANTES de ser almacenada.
      * @param usuario El objeto Usuario a insertar.
-     * @return El ID generado para el nuevo usuario, o -1 si falla.
+     * @return El objeto Usuario con el ID generado asignado.
      * @throws SQLException Si ocurre un error de base de datos.
      */
-    public int insertar(Usuario usuario) throws SQLException {
-        String sql = "INSERT INTO Usuarios (nombre_usuario, contrasena, rol, activo) VALUES (?, ?, ?, ?)";
-        int idGenerado = -1;
+    public Usuario crear(Usuario usuario) throws SQLException { // Cambiamos el nombre a 'crear' para consistencia
+        // Ajustamos la sentencia SQL para que coincida con la tabla 'usuarios' en nuestro esquema MySQL.
+        // Columnas en BD: id_usuario, nombre_usuario, contrasena_hash, rol, activo
+        String sql = "INSERT INTO usuarios (nombre_usuario, contrasena_hash, rol, activo) VALUES (?, ?, ?, ?)";
         
         try (Connection conn = DatabaseConnection.getConnection();
-             PreparedStatement pstmt = conn.prepareStatement(sql, PreparedStatement.RETURN_GENERATED_KEYS)) {
+             PreparedStatement pstmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
 
             pstmt.setString(1, usuario.getNombreUsuario());
-            pstmt.setString(2, usuario.getContrasena()); // NOTA: En un sistema real, se debería almacenar el hash de la contraseña
+            // CRÍTICO: La contraseña NUNCA debe almacenarse en texto plano.
+            // Asumo que tu modelo Usuario ya tiene la contraseña hasheada aquí,
+            // o que la lógica de hashing se realiza antes de llamar a este método.
+            // Si no es así, DEBES implementarlo aquí o en tu capa de servicio.
+            // Ejemplo (descomenta si usas BCrypt):
+            // String hashedPass = BCrypt.hashpw(usuario.getContrasena(), BCrypt.gensalt());
+            // pstmt.setString(2, hashedPass);
+            
+            // Por ahora, si tu modelo Usuario ya te da el hash (idealmente), lo usamos.
+            // Si Usuario.getContrasena() devuelve el texto plano, ESTO ES UNA VULNERABILIDAD.
+            pstmt.setString(2, usuario.getContrasena()); // Asumo que getContrasena() ahora devuelve el hash.
+                                                        // Renombra el campo a 'contrasena_hash' en tu modelo Usuario si es un hash.
             pstmt.setString(3, usuario.getRol());
             pstmt.setBoolean(4, usuario.isActivo());
 
             int filasAfectadas = pstmt.executeUpdate();
 
-            if (filasAfectadas > 0) {
-                try (ResultSet rs = pstmt.getGeneratedKeys()) {
-                    if (rs.next()) {
-                        idGenerado = rs.getInt(1);
-                        usuario.setIdUsuario(idGenerado); // Asignar el ID al objeto Usuario
-                        System.out.println("Usuario insertado con ID: " + idGenerado);
-                    }
+            if (filasAfectadas == 0) {
+                throw new SQLException("La creación del usuario falló, no se insertaron filas.");
+            }
+            
+            try (ResultSet rs = pstmt.getGeneratedKeys()) {
+                if (rs.next()) {
+                    usuario.setIdUsuario(rs.getInt(1)); // Asignar el ID al objeto Usuario
+                    System.out.println("Usuario insertado con ID: " + usuario.getIdUsuario());
+                } else {
+                    throw new SQLException("La creación del usuario falló, no se obtuvo ID generado.");
                 }
             }
         }
-        return idGenerado;
+        return usuario;
     }
 
     /**
@@ -50,7 +73,9 @@ public class UsuarioDAO {
      * @throws SQLException Si ocurre un error de base de datos.
      */
     public Usuario obtenerPorId(int id) throws SQLException {
-        String sql = "SELECT id_usuario, nombre_usuario, contrasena, rol, activo FROM Usuarios WHERE id_usuario = ?";
+        // Seleccionamos las columnas según el esquema MySQL
+        // id_usuario, nombre_usuario, contrasena_hash, rol, activo
+        String sql = "SELECT id_usuario, nombre_usuario, contrasena_hash, rol, activo FROM usuarios WHERE id_usuario = ?";
         Usuario usuario = null;
 
         try (Connection conn = DatabaseConnection.getConnection();
@@ -60,13 +85,7 @@ public class UsuarioDAO {
             
             try (ResultSet rs = pstmt.executeQuery()) {
                 if (rs.next()) {
-                    usuario = new Usuario(
-                        rs.getInt("id_usuario"),
-                        rs.getString("nombre_usuario"),
-                        rs.getString("contrasena"),
-                        rs.getString("rol"),
-                        rs.getBoolean("activo")
-                    );
+                    usuario = mapResultSetToUsuario(rs); // Usamos el método auxiliar
                 }
             }
         }
@@ -81,7 +100,8 @@ public class UsuarioDAO {
      * @throws SQLException Si ocurre un error de base de datos.
      */
     public Usuario obtenerPorNombreUsuario(String nombreUsuario) throws SQLException {
-        String sql = "SELECT id_usuario, nombre_usuario, contrasena, rol, activo FROM Usuarios WHERE nombre_usuario = ?";
+        // Seleccionamos las columnas según el esquema MySQL, incluyendo contrasena_hash
+        String sql = "SELECT id_usuario, nombre_usuario, contrasena_hash, rol, activo FROM usuarios WHERE nombre_usuario = ?";
         Usuario usuario = null;
 
         try (Connection conn = DatabaseConnection.getConnection();
@@ -91,13 +111,7 @@ public class UsuarioDAO {
             
             try (ResultSet rs = pstmt.executeQuery()) {
                 if (rs.next()) {
-                    usuario = new Usuario(
-                        rs.getInt("id_usuario"),
-                        rs.getString("nombre_usuario"),
-                        rs.getString("contrasena"),
-                        rs.getString("rol"),
-                        rs.getBoolean("activo")
-                    );
+                    usuario = mapResultSetToUsuario(rs); // Usamos el método auxiliar
                 }
             }
         }
@@ -111,21 +125,15 @@ public class UsuarioDAO {
      */
     public List<Usuario> obtenerTodos() throws SQLException {
         List<Usuario> usuarios = new ArrayList<>();
-        String sql = "SELECT id_usuario, nombre_usuario, contrasena, rol, activo FROM Usuarios";
+        // Seleccionamos las columnas según el esquema MySQL, incluyendo contrasena_hash
+        String sql = "SELECT id_usuario, nombre_usuario, contrasena_hash, rol, activo FROM usuarios";
 
         try (Connection conn = DatabaseConnection.getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql);
              ResultSet rs = pstmt.executeQuery()) {
 
             while (rs.next()) {
-                Usuario usuario = new Usuario(
-                    rs.getInt("id_usuario"),
-                    rs.getString("nombre_usuario"),
-                    rs.getString("contrasena"),
-                    rs.getString("rol"),
-                    rs.getBoolean("activo")
-                );
-                usuarios.add(usuario);
+                usuarios.add(mapResultSetToUsuario(rs)); // Usamos el método auxiliar
             }
         }
         return usuarios;
@@ -133,19 +141,25 @@ public class UsuarioDAO {
 
     /**
      * Actualiza la información de un usuario existente.
+     * NOTA IMPORTANTE: Si la contraseña se actualiza, DEBE ser hasheada antes de llamar a este método.
+     * Si no se va a actualizar la contraseña, considera tener un método `actualizarSinContrasena` o
+     * asegurar que `usuario.getContrasena()` devuelva el hash actual.
      * @param usuario El objeto Usuario con la información actualizada.
      * @return true si la actualización fue exitosa, false de lo contrario.
      * @throws SQLException Si ocurre un error de base de datos.
      */
     public boolean actualizar(Usuario usuario) throws SQLException {
-        String sql = "UPDATE Usuarios SET nombre_usuario = ?, contrasena = ?, rol = ?, activo = ? WHERE id_usuario = ?";
+        // Ajustamos la sentencia SQL para que coincida con la tabla 'usuarios' en MySQL.
+        // La columna de contraseña debe ser 'contrasena_hash'.
+        String sql = "UPDATE usuarios SET nombre_usuario = ?, contrasena_hash = ?, rol = ?, activo = ? WHERE id_usuario = ?";
         int filasAfectadas = 0;
 
         try (Connection conn = DatabaseConnection.getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
 
             pstmt.setString(1, usuario.getNombreUsuario());
-            pstmt.setString(2, usuario.getContrasena()); // NOTA: Hashing para seguridad
+            // Asumo que usuario.getContrasena() ya devuelve el hash de la contraseña (nueva o existente).
+            pstmt.setString(2, usuario.getContrasena()); 
             pstmt.setString(3, usuario.getRol());
             pstmt.setBoolean(4, usuario.isActivo());
             pstmt.setInt(5, usuario.getIdUsuario());
@@ -162,7 +176,7 @@ public class UsuarioDAO {
      * @throws SQLException Si ocurre un error de base de datos.
      */
     public boolean eliminar(int id) throws SQLException {
-        String sql = "DELETE FROM Usuarios WHERE id_usuario = ?";
+        String sql = "DELETE FROM usuarios WHERE id_usuario = ?"; // Nombre de tabla en minúsculas
         int filasAfectadas = 0;
 
         try (Connection conn = DatabaseConnection.getConnection();
@@ -173,5 +187,64 @@ public class UsuarioDAO {
             filasAfectadas = pstmt.executeUpdate();
         }
         return filasAfectadas > 0;
+    }
+
+    // --- Consultas específicas de la BD ---
+
+    /**
+     * Verifica si existe un usuario con el nombre de usuario dado (para evitar duplicados).
+     * @param nombreUsuario El nombre de usuario a verificar.
+     * @return true si el nombre de usuario ya existe, false en caso contrario.
+     * @throws SQLException Si ocurre un error de base de datos.
+     */
+    public boolean existeNombreUsuario(String nombreUsuario) throws SQLException {
+        String sql = "SELECT COUNT(*) FROM usuarios WHERE nombre_usuario = ?";
+        try (Connection conn = DatabaseConnection.getConnection();
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, nombreUsuario);
+            try (ResultSet rs = pstmt.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getInt(1) > 0;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Obtiene una lista de todos los usuarios que están activos.
+     * @return Una lista de objetos Usuario activos.
+     * @throws SQLException Si ocurre un error de base de datos.
+     */
+    public List<Usuario> obtenerUsuariosActivos() throws SQLException {
+        List<Usuario> usuariosActivos = new ArrayList<>();
+        String sql = "SELECT id_usuario, nombre_usuario, contrasena_hash, rol, activo FROM usuarios WHERE activo = TRUE";
+
+        try (Connection conn = DatabaseConnection.getConnection();
+             PreparedStatement pstmt = conn.prepareStatement(sql);
+             ResultSet rs = pstmt.executeQuery()) {
+
+            while (rs.next()) {
+                usuariosActivos.add(mapResultSetToUsuario(rs));
+            }
+        }
+        return usuariosActivos;
+    }
+
+    /**
+     * Método auxiliar para mapear un ResultSet a un objeto Usuario.
+     * Extrae los datos de la fila actual del ResultSet y crea un objeto Usuario.
+     * @param rs El ResultSet del que extraer los datos.
+     * @return Un objeto Usuario con los datos de la fila actual.
+     * @throws SQLException Si ocurre un error de base de datos.
+     */
+    private Usuario mapResultSetToUsuario(ResultSet rs) throws SQLException {
+        return new Usuario(
+            rs.getInt("id_usuario"),
+            rs.getString("nombre_usuario"),
+            rs.getString("contrasena_hash"), // Leer el hash de la contraseña
+            rs.getString("rol"),
+            rs.getBoolean("activo")
+        );
     }
 }

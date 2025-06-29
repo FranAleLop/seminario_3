@@ -5,6 +5,8 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement; // Necesario para Statement.RETURN_GENERATED_KEYS
+import java.time.LocalDate; // Importación correcta
 import java.util.ArrayList;
 import java.util.List;
 
@@ -13,19 +15,20 @@ public class ProfesorDAO {
     /**
      * Inserta un nuevo profesor en la base de datos.
      * @param profesor El objeto Profesor a insertar.
-     * @return El ID generado para el nuevo profesor, o -1 si falla.
+     * @return El objeto Profesor con el ID generado asignado.
      * @throws SQLException Si ocurre un error de base de datos.
      */
-    public int insertar(Profesor profesor) throws SQLException {
-        String sql = "INSERT INTO Profesores (nombre_completo, dni, fecha_nacimiento, direccion, telefono, email, fecha_contratacion, activo) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
-        int idGenerado = -1;
+    public Profesor crear(Profesor profesor) throws SQLException { // Cambiamos el nombre a 'crear' para consistencia
+        // Ajustamos la sentencia SQL para que coincida con la tabla 'profesores' en nuestro esquema MySQL.
+        // Columnas en BD: id_profesor, nombre_completo, dni, fecha_nacimiento, direccion, telefono, email, fecha_contratacion, activo
+        String sql = "INSERT INTO profesores (nombre_completo, dni, fecha_nacimiento, direccion, telefono, email, fecha_contratacion, activo) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
         
         try (Connection conn = DatabaseConnection.getConnection();
-             PreparedStatement pstmt = conn.prepareStatement(sql, PreparedStatement.RETURN_GENERATED_KEYS)) {
+             PreparedStatement pstmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) { // Usamos Statement para claridad
 
             pstmt.setString(1, profesor.getNombreCompleto());
             pstmt.setString(2, profesor.getDni());
-            pstmt.setDate(3, java.sql.Date.valueOf(profesor.getFechaNacimiento()));
+            pstmt.setDate(3, java.sql.Date.valueOf(profesor.getFechaNacimiento())); // Convertir LocalDate a java.sql.Date
             pstmt.setString(4, profesor.getDireccion());
             pstmt.setString(5, profesor.getTelefono());
             pstmt.setString(6, profesor.getEmail());
@@ -34,17 +37,20 @@ public class ProfesorDAO {
 
             int filasAfectadas = pstmt.executeUpdate();
 
-            if (filasAfectadas > 0) {
-                try (ResultSet rs = pstmt.getGeneratedKeys()) {
-                    if (rs.next()) {
-                        idGenerado = rs.getInt(1);
-                        profesor.setIdProfesor(idGenerado); // Asignar el ID al objeto Profesor
-                        System.out.println("Profesor insertado con ID: " + idGenerado);
-                    }
+            if (filasAfectadas == 0) {
+                throw new SQLException("La creación del profesor falló, no se insertaron filas.");
+            }
+            
+            try (ResultSet rs = pstmt.getGeneratedKeys()) {
+                if (rs.next()) {
+                    profesor.setIdProfesor(rs.getInt(1)); // Asignar el ID al objeto Profesor
+                    System.out.println("Profesor insertado con ID: " + profesor.getIdProfesor());
+                } else {
+                    throw new SQLException("La creación del profesor falló, no se obtuvo ID generado.");
                 }
             }
         }
-        return idGenerado;
+        return profesor;
     }
 
     /**
@@ -54,7 +60,9 @@ public class ProfesorDAO {
      * @throws SQLException Si ocurre un error de base de datos.
      */
     public Profesor obtenerPorId(int id) throws SQLException {
-        String sql = "SELECT id_profesor, nombre_completo, dni, fecha_nacimiento, direccion, telefono, email, fecha_contratacion, activo FROM Profesores WHERE id_profesor = ?";
+        // Seleccionamos las columnas según el esquema MySQL
+        // id_profesor, nombre_completo, dni, fecha_nacimiento, direccion, telefono, email, fecha_contratacion, activo
+        String sql = "SELECT id_profesor, nombre_completo, dni, fecha_nacimiento, direccion, telefono, email, fecha_contratacion, activo FROM profesores WHERE id_profesor = ?";
         Profesor profesor = null;
 
         try (Connection conn = DatabaseConnection.getConnection();
@@ -64,17 +72,7 @@ public class ProfesorDAO {
             
             try (ResultSet rs = pstmt.executeQuery()) {
                 if (rs.next()) {
-                    profesor = new Profesor(
-                        rs.getInt("id_profesor"),
-                        rs.getString("nombre_completo"),
-                        rs.getString("dni"),
-                        rs.getDate("fecha_nacimiento").toLocalDate(),
-                        rs.getString("direccion"),
-                        rs.getString("telefono"),
-                        rs.getString("email"),
-                        rs.getDate("fecha_contratacion").toLocalDate(),
-                        rs.getBoolean("activo")
-                    );
+                    profesor = mapResultSetToProfesor(rs); // Usamos el método auxiliar
                 }
             }
         }
@@ -88,25 +86,15 @@ public class ProfesorDAO {
      */
     public List<Profesor> obtenerTodos() throws SQLException {
         List<Profesor> profesores = new ArrayList<>();
-        String sql = "SELECT id_profesor, nombre_completo, dni, fecha_nacimiento, direccion, telefono, email, fecha_contratacion, activo FROM Profesores";
+        // Seleccionamos las columnas según el esquema MySQL
+        String sql = "SELECT id_profesor, nombre_completo, dni, fecha_nacimiento, direccion, telefono, email, fecha_contratacion, activo FROM profesores";
 
         try (Connection conn = DatabaseConnection.getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql);
              ResultSet rs = pstmt.executeQuery()) {
 
             while (rs.next()) {
-                Profesor profesor = new Profesor(
-                    rs.getInt("id_profesor"),
-                    rs.getString("nombre_completo"),
-                    rs.getString("dni"),
-                    rs.getDate("fecha_nacimiento").toLocalDate(),
-                    rs.getString("direccion"),
-                    rs.getString("telefono"),
-                    rs.getString("email"),
-                    rs.getDate("fecha_contratacion").toLocalDate(),
-                    rs.getBoolean("activo")
-                );
-                profesores.add(profesor);
+                profesores.add(mapResultSetToProfesor(rs)); // Usamos el método auxiliar
             }
         }
         return profesores;
@@ -119,7 +107,8 @@ public class ProfesorDAO {
      * @throws SQLException Si ocurre un error de base de datos.
      */
     public boolean actualizar(Profesor profesor) throws SQLException {
-        String sql = "UPDATE Profesores SET nombre_completo = ?, dni = ?, fecha_nacimiento = ?, direccion = ?, telefono = ?, email = ?, fecha_contratacion = ?, activo = ? WHERE id_profesor = ?";
+        // Ajustamos la sentencia SQL para que coincida con la tabla 'profesores' en MySQL.
+        String sql = "UPDATE profesores SET nombre_completo = ?, dni = ?, fecha_nacimiento = ?, direccion = ?, telefono = ?, email = ?, fecha_contratacion = ?, activo = ? WHERE id_profesor = ?";
         int filasAfectadas = 0;
 
         try (Connection conn = DatabaseConnection.getConnection();
@@ -133,7 +122,7 @@ public class ProfesorDAO {
             pstmt.setString(6, profesor.getEmail());
             pstmt.setDate(7, java.sql.Date.valueOf(profesor.getFechaContratacion()));
             pstmt.setBoolean(8, profesor.isActivo());
-            pstmt.setInt(9, profesor.getIdProfesor());
+            pstmt.setInt(9, profesor.getIdProfesor()); // Cláusula WHERE
 
             filasAfectadas = pstmt.executeUpdate();
         }
@@ -147,7 +136,7 @@ public class ProfesorDAO {
      * @throws SQLException Si ocurre un error de base de datos.
      */
     public boolean eliminar(int id) throws SQLException {
-        String sql = "DELETE FROM Profesores WHERE id_profesor = ?";
+        String sql = "DELETE FROM profesores WHERE id_profesor = ?"; // Nombre de tabla en minúsculas
         int filasAfectadas = 0;
 
         try (Connection conn = DatabaseConnection.getConnection();
@@ -158,5 +147,71 @@ public class ProfesorDAO {
             filasAfectadas = pstmt.executeUpdate();
         }
         return filasAfectadas > 0;
+    }
+
+    // --- Consultas específicas de la BD ---
+
+    /**
+     * Obtiene una lista de todos los profesores que están activos.
+     * @return Una lista de objetos Profesor activos.
+     * @throws SQLException Si ocurre un error de base de datos.
+     */
+    public List<Profesor> obtenerProfesoresActivos() throws SQLException {
+        List<Profesor> profesoresActivos = new ArrayList<>();
+        String sql = "SELECT id_profesor, nombre_completo, dni, fecha_nacimiento, direccion, telefono, email, fecha_contratacion, activo FROM profesores WHERE activo = TRUE";
+
+        try (Connection conn = DatabaseConnection.getConnection();
+             PreparedStatement pstmt = conn.prepareStatement(sql);
+             ResultSet rs = pstmt.executeQuery()) {
+
+            while (rs.next()) {
+                profesoresActivos.add(mapResultSetToProfesor(rs));
+            }
+        }
+        return profesoresActivos;
+    }
+
+    /**
+     * Busca profesores por su nombre completo o parte de él.
+     * @param nombre El nombre o parte del nombre a buscar.
+     * @return Una lista de profesores que coinciden con la búsqueda.
+     * @throws SQLException Si ocurre un error de base de datos.
+     */
+    public List<Profesor> buscarPorNombre(String nombre) throws SQLException {
+        List<Profesor> profesoresEncontrados = new ArrayList<>();
+        String sql = "SELECT id_profesor, nombre_completo, dni, fecha_nacimiento, direccion, telefono, email, fecha_contratacion, activo FROM profesores WHERE nombre_completo LIKE ?";
+
+        try (Connection conn = DatabaseConnection.getConnection();
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, "%" + nombre + "%"); // Búsqueda parcial con comodines
+            
+            try (ResultSet rs = pstmt.executeQuery()) {
+                while (rs.next()) {
+                    profesoresEncontrados.add(mapResultSetToProfesor(rs));
+                }
+            }
+        }
+        return profesoresEncontrados;
+    }
+
+    /**
+     * Método auxiliar para mapear un ResultSet a un objeto Profesor.
+     * Extrae los datos de la fila actual del ResultSet y crea un objeto Profesor.
+     * @param rs El ResultSet del que extraer los datos.
+     * @return Un objeto Profesor con los datos de la fila actual.
+     * @throws SQLException Si ocurre un error de base de datos.
+     */
+    private Profesor mapResultSetToProfesor(ResultSet rs) throws SQLException {
+        return new Profesor(
+            rs.getInt("id_profesor"),
+            rs.getString("nombre_completo"),
+            rs.getString("dni"),
+            rs.getDate("fecha_nacimiento").toLocalDate(), // Convertir java.sql.Date a LocalDate
+            rs.getString("direccion"),
+            rs.getString("telefono"),
+            rs.getString("email"),
+            rs.getDate("fecha_contratacion").toLocalDate(), // Convertir java.sql.Date a LocalDate
+            rs.getBoolean("activo")
+        );
     }
 }

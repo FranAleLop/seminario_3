@@ -5,78 +5,101 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement; // Necesario para Statement.RETURN_GENERATED_KEYS
 import java.util.ArrayList;
 import java.util.List;
+import java.time.LocalDate; 
 
 public class AlumnoDAO {
 
     /**
      * Inserta un nuevo alumno en la base de datos.
+     *
      * @param alumno El objeto Alumno a insertar.
-     * @return El ID generado para el nuevo alumno, o -1 si falla.
+     * @return El objeto Alumno con el ID generado asignado.
      * @throws SQLException Si ocurre un error de base de datos.
      */
-    public int insertar(Alumno alumno) throws SQLException {
-        String sql = "INSERT INTO Alumnos (nombre_completo, dni, fecha_nacimiento, direccion, telefono, email, fecha_inscripcion, activo) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
-        int idGenerado = -1;
-        
-        // Uso de try-with-resources para asegurar el cierre automático de Connection y PreparedStatement
+    public Alumno crear(Alumno alumno) throws SQLException { // Cambiamos el nombre a 'crear' para consistencia con otros DAOs
+        // MySQL maneja 'fecha_creacion' y 'fecha_actualizacion' automáticamente,
+        // así que no las incluimos en el INSERT.
+        String sql = "INSERT INTO alumnos (nombre, apellido, dni, telefono, email, fecha_nacimiento, activo) VALUES (?, ?, ?, ?, ?, ?, ?)";
+        // Nota: Si el modelo Alumno tiene 'direccion' y 'fecha_inscripcion' y las tablas no, habría que decidir si se añaden a la BD o se eliminan del modelo.
+        // Asumiendo el script MySQL proporcionado: 'nombre_completo' en el script de la entrega 2 se convirtió a 'nombre' y 'apellido'.
+        // Aquí asumimos que el objeto Alumno tiene 'getNombre()' y 'getApellido()'
+        // Si Alumno aún tiene 'getNombreCompleto()', deberías dividirlo en nombre y apellido antes de insertar,
+        // o cambiar el schema de la BD a 'nombre_completo'
+        // EN NUESTRO SCHEMA MYSQL (última versión), TENEMOS 'nombre' y 'apellido'.
+        // POR ESO, EL ALUMNO MODEL DEBE TENER GETNOMBRE() Y GETAPELLIDO()
+        // O MODIFICAR EL SCHEMA DE LA BD DE ALUMNOS PARA QUE VUELVA A TENER 'nombre_completo'
+        // AJUSTO LA SQL PARA EL SCHEMA MAS RECIENTE CON 'nombre' y 'apellido'
+        // Y ASUMO QUE EL OBJETO ALUMNO tiene esos getters.
+
         try (Connection conn = DatabaseConnection.getConnection();
-             PreparedStatement pstmt = conn.prepareStatement(sql, PreparedStatement.RETURN_GENERATED_KEYS)) { // Importante para obtener el ID generado
+             PreparedStatement pstmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
 
-            pstmt.setString(1, alumno.getNombreCompleto());
-            pstmt.setString(2, alumno.getDni());
-            pstmt.setDate(3, java.sql.Date.valueOf(alumno.getFechaNacimiento())); // Convertir LocalDate a java.sql.Date
-            pstmt.setString(4, alumno.getDireccion());
-            pstmt.setString(5, alumno.getTelefono());
-            pstmt.setString(6, alumno.getEmail());
-            pstmt.setDate(7, java.sql.Date.valueOf(alumno.getFechaInscripcion()));
-            pstmt.setBoolean(8, alumno.isActivo());
+            pstmt.setString(1, alumno.getNombre()); // Asumiendo Alumno.getNombre()
+            pstmt.setString(2, alumno.getApellido()); // Asumiendo Alumno.getApellido()
+            pstmt.setString(3, alumno.getDni());
+            pstmt.setString(4, alumno.getTelefono()); // Antes era telefono_contacto
+            pstmt.setString(5, alumno.getEmail());
+            pstmt.setDate(6, alumno.getFechaNacimiento() != null ? java.sql.Date.valueOf(alumno.getFechaNacimiento()) : null);
+            pstmt.setBoolean(7, alumno.isActivo()); // Asumiendo que el campo 'activo' existe en Alumno y BD
 
-            int filasAfectadas = pstmt.executeUpdate(); // Ejecuta la inserción
+            int filasAfectadas = pstmt.executeUpdate();
 
-            if (filasAfectadas > 0) {
-                // Si la inserción fue exitosa, obtenemos el ID autogenerado
-                try (ResultSet rs = pstmt.getGeneratedKeys()) {
-                    if (rs.next()) {
-                        idGenerado = rs.getInt(1);
-                        alumno.setIdAlumno(idGenerado); // Asignar el ID al objeto Alumno
-                        System.out.println("Alumno insertado con ID: " + idGenerado);
-                    }
+            if (filasAfectadas == 0) {
+                throw new SQLException("La creación del alumno falló, no se insertaron filas.");
+            }
+
+            try (ResultSet rs = pstmt.getGeneratedKeys()) {
+                if (rs.next()) {
+                    alumno.setIdAlumno(rs.getInt(1)); // Asignar el ID generado al objeto Alumno
+                } else {
+                    throw new SQLException("La creación del alumno falló, no se obtuvo ID generado.");
                 }
             }
-        } // Connection y PreparedStatement se cierran automáticamente aquí
-        return idGenerado;
+        }
+        return alumno;
     }
 
     /**
      * Obtiene un alumno por su ID.
+     *
      * @param id El ID del alumno a buscar.
      * @return El objeto Alumno si se encuentra, o null si no existe.
      * @throws SQLException Si ocurre un error de base de datos.
      */
     public Alumno obtenerPorId(int id) throws SQLException {
-        String sql = "SELECT id_alumno, nombre_completo, dni, fecha_nacimiento, direccion, telefono, email, fecha_inscripcion, activo FROM Alumnos WHERE id_alumno = ?";
+        // Seleccionamos las columnas según el script MySQL.
+        // No seleccionamos fecha_creacion y fecha_actualizacion si no las necesitas en el objeto Alumno.
+        // Si las necesitas, Alumno deberá tener campos para ellas.
+        String sql = "SELECT id_alumno, nombre, apellido, dni, telefono, email, fecha_nacimiento, activo FROM alumnos WHERE id_alumno = ?";
         Alumno alumno = null;
 
         try (Connection conn = DatabaseConnection.getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
 
-            pstmt.setInt(1, id); // Establece el parámetro del ID
-            
-            try (ResultSet rs = pstmt.executeQuery()) { // Ejecuta la consulta
+            pstmt.setInt(1, id);
+
+            try (ResultSet rs = pstmt.executeQuery()) {
                 if (rs.next()) {
-                    // Si se encuentra un resultado, se crea el objeto Alumno
+                    // Mapeo según las columnas de la tabla 'alumnos' en MySQL
+                    // Y asumiendo que el constructor de Alumno fue actualizado.
+                    LocalDate fechaNacimiento = rs.getDate("fecha_nacimiento") != null ? rs.getDate("fecha_nacimiento").toLocalDate() : null;
+
                     alumno = new Alumno(
                         rs.getInt("id_alumno"),
-                        rs.getString("nombre_completo"),
+                        rs.getString("nombre"),
+                        rs.getString("apellido"),
                         rs.getString("dni"),
-                        rs.getDate("fecha_nacimiento").toLocalDate(), // Convertir java.sql.Date a LocalDate
-                        rs.getString("direccion"),
                         rs.getString("telefono"),
                         rs.getString("email"),
-                        rs.getDate("fecha_inscripcion").toLocalDate(),
+                        fechaNacimiento,
                         rs.getBoolean("activo")
+                        // NOTA: 'direccion' y 'fecha_inscripcion' no están en el schema de la BD 'alumnos' que te di.
+                        // Si tu modelo Alumno las tiene, debes decidir si las eliminas del modelo o las añades al esquema de la BD.
+                        // Por simplicidad en esta corrección, las he omitido en el mapeo, asumiendo que no existen en el schema de la BD.
+                        // También, ten en cuenta que el constructor de Alumno podría necesitar ajuste a menos parámetros.
                     );
                 }
             }
@@ -86,30 +109,32 @@ public class AlumnoDAO {
 
     /**
      * Obtiene una lista de todos los alumnos.
+     *
      * @return Una lista de objetos Alumno. Puede estar vacía si no hay alumnos.
      * @throws SQLException Si ocurre un error de base de datos.
      */
     public List<Alumno> obtenerTodos() throws SQLException {
         List<Alumno> alumnos = new ArrayList<>();
-        String sql = "SELECT id_alumno, nombre_completo, dni, fecha_nacimiento, direccion, telefono, email, fecha_inscripcion, activo FROM Alumnos";
+        String sql = "SELECT id_alumno, nombre, apellido, dni, telefono, email, fecha_nacimiento, activo FROM alumnos";
 
         try (Connection conn = DatabaseConnection.getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql);
-             ResultSet rs = pstmt.executeQuery()) { // Ejecuta la consulta
+             ResultSet rs = pstmt.executeQuery()) {
 
-            while (rs.next()) { // Itera sobre cada fila del resultado
+            while (rs.next()) {
+                LocalDate fechaNacimiento = rs.getDate("fecha_nacimiento") != null ? rs.getDate("fecha_nacimiento").toLocalDate() : null;
+
                 Alumno alumno = new Alumno(
                     rs.getInt("id_alumno"),
-                    rs.getString("nombre_completo"),
+                    rs.getString("nombre"),
+                    rs.getString("apellido"),
                     rs.getString("dni"),
-                    rs.getDate("fecha_nacimiento").toLocalDate(),
-                    rs.getString("direccion"),
                     rs.getString("telefono"),
                     rs.getString("email"),
-                    rs.getDate("fecha_inscripcion").toLocalDate(),
+                    fechaNacimiento,
                     rs.getBoolean("activo")
                 );
-                alumnos.add(alumno); // Agrega el alumno a la lista
+                alumnos.add(alumno);
             }
         }
         return alumnos;
@@ -117,63 +142,57 @@ public class AlumnoDAO {
 
     /**
      * Actualiza la información de un alumno existente.
+     *
      * @param alumno El objeto Alumno con la información actualizada.
      * @return true si la actualización fue exitosa, false de lo contrario.
      * @throws SQLException Si ocurre un error de base de datos.
      */
     public boolean actualizar(Alumno alumno) throws SQLException {
-        String sql = "UPDATE Alumnos SET nombre_completo = ?, dni = ?, fecha_nacimiento = ?, direccion = ?, telefono = ?, email = ?, fecha_inscripcion = ?, activo = ? WHERE id_alumno = ?";
+        // NOTA: 'fecha_actualizacion' en la BD se actualiza automáticamente.
+        String sql = "UPDATE alumnos SET nombre = ?, apellido = ?, dni = ?, telefono = ?, email = ?, fecha_nacimiento = ?, activo = ? WHERE id_alumno = ?";
         int filasAfectadas = 0;
 
         try (Connection conn = DatabaseConnection.getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
 
-            pstmt.setString(1, alumno.getNombreCompleto());
-            pstmt.setString(2, alumno.getDni());
-            pstmt.setDate(3, java.sql.Date.valueOf(alumno.getFechaNacimiento()));
-            pstmt.setString(4, alumno.getDireccion());
-            pstmt.setString(5, alumno.getTelefono());
-            pstmt.setString(6, alumno.getEmail());
-            pstmt.setDate(7, java.sql.Date.valueOf(alumno.getFechaInscripcion()));
-            pstmt.setBoolean(8, alumno.isActivo());
-            pstmt.setInt(9, alumno.getIdAlumno()); // Cláusula WHERE
+            pstmt.setString(1, alumno.getNombre());
+            pstmt.setString(2, alumno.getApellido());
+            pstmt.setString(3, alumno.getDni());
+            pstmt.setString(4, alumno.getTelefono());
+            pstmt.setString(5, alumno.getEmail());
+            pstmt.setDate(6, alumno.getFechaNacimiento() != null ? java.sql.Date.valueOf(alumno.getFechaNacimiento()) : null);
+            pstmt.setBoolean(7, alumno.isActivo());
+            pstmt.setInt(8, alumno.getIdAlumno());
 
-            filasAfectadas = pstmt.executeUpdate(); // Ejecuta la actualización
+            filasAfectadas = pstmt.executeUpdate();
         }
         return filasAfectadas > 0;
     }
 
     /**
      * Elimina un alumno por su ID.
+     *
      * @param id El ID del alumno a eliminar.
      * @return true si la eliminación fue exitosa, false de lo contrario.
      * @throws SQLException Si ocurre un error de base de datos.
      */
     public boolean eliminar(int id) throws SQLException {
-        String sql = "DELETE FROM Alumnos WHERE id_alumno = ?";
+        String sql = "DELETE FROM alumnos WHERE id_alumno = ?";
         int filasAfectadas = 0;
 
         try (Connection conn = DatabaseConnection.getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
 
-            pstmt.setInt(1, id); // Establece el parámetro del ID
+            pstmt.setInt(1, id);
 
-            filasAfectadas = pstmt.executeUpdate(); // Ejecuta la eliminación
+            filasAfectadas = pstmt.executeUpdate();
         }
         return filasAfectadas > 0;
     }
 
-    // --- Consultas específicas de la BD ---
-
     /**
-     * Obtiene una lista de alumnos que tienen alguna cuota pendiente (deudores).
-     * Esto requiere una JOIN con la tabla Pagos y PeriodosCuota.
-     * Para este ejemplo, simplificaremos a alumnos que no tienen un pago *completo* para un período en particular.
-     * La consulta original de deudores era más compleja, haremos una versión que ilustre la idea.
-     *
-     * Este método es una implementación de la consulta de "deudores" que habíamos planteado.
-     * Simplificado para mostrar el concepto de una "consulta específica".
-     * Necesitarías pasar un ID de Periodo para una verificación más precisa.
+     * Obtiene una lista de alumnos que tienen alguna cuota pendiente (deudores)
+     * para un período específico.
      *
      * @param idPeriodo El ID del período a verificar si el alumno pagó completamente.
      * @return Una lista de alumnos que son deudores para el período dado.
@@ -181,31 +200,34 @@ public class AlumnoDAO {
      */
     public List<Alumno> obtenerDeudoresPorPeriodo(int idPeriodo) throws SQLException {
         List<Alumno> deudores = new ArrayList<>();
-        // Esta consulta busca alumnos que no tienen un pago COMPLETO para un periodo dado.
-        // Se considera deudor si no hay un pago, o si el pago existente es parcial para ese periodo.
-        String sql = "SELECT A.id_alumno, A.nombre_completo, A.dni, A.fecha_nacimiento, " +
-                     "A.direccion, A.telefono, A.email, A.fecha_inscripcion, A.activo " +
-                     "FROM Alumnos A " +
-                     "LEFT JOIN Pagos P ON A.id_alumno = P.id_alumno AND P.id_periodo = ? " +
-                     "LEFT JOIN PeriodosCuota PC ON P.id_periodo = PC.id_periodo " +
-                     "WHERE PC.id_periodo IS NULL OR P.es_pago_parcial = TRUE"; // OJO: PC.id_periodo IS NULL significa que no hay pago para ese periodo
+        // Asumimos que un alumno es deudor si NO tiene un pago registrado para el idPeriodo O
+        // si tiene un pago registrado pero el monto pagado es MENOR al monto esperado del periodo
+        // (Esto requiere un campo 'monto_esperado' en PeriodosCuota y 'monto_pagado' en Pagos, lo cual está en nuestro esquema).
+        String sql = "SELECT A.id_alumno, A.nombre, A.apellido, A.dni, A.telefono, A.email, A.fecha_nacimiento, A.activo " +
+                     "FROM alumnos A " +
+                     "LEFT JOIN pagos P ON A.id_alumno = P.id_alumno AND P.id_periodo = ? " +
+                     "LEFT JOIN periodos_cuota PC ON PC.id_periodo = ? " + // Unimos al PeriodoCuota específico
+                     "WHERE P.id_pago IS NULL " + // No hay ningún pago registrado para este periodo
+                     "OR (P.monto_pagado < PC.monto_esperado)"; // O el monto pagado es menor al esperado (pago parcial/insuficiente)
 
         try (Connection conn = DatabaseConnection.getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
 
-            pstmt.setInt(1, idPeriodo); // Establece el parámetro del ID del período
-            
+            pstmt.setInt(1, idPeriodo); // Para el LEFT JOIN en Pagos
+            pstmt.setInt(2, idPeriodo); // Para el LEFT JOIN en PeriodosCuota
+
             try (ResultSet rs = pstmt.executeQuery()) {
                 while (rs.next()) {
+                    LocalDate fechaNacimiento = rs.getDate("fecha_nacimiento") != null ? rs.getDate("fecha_nacimiento").toLocalDate() : null;
+
                     Alumno alumno = new Alumno(
                         rs.getInt("id_alumno"),
-                        rs.getString("nombre_completo"),
+                        rs.getString("nombre"),
+                        rs.getString("apellido"),
                         rs.getString("dni"),
-                        rs.getDate("fecha_nacimiento").toLocalDate(),
-                        rs.getString("direccion"),
                         rs.getString("telefono"),
                         rs.getString("email"),
-                        rs.getDate("fecha_inscripcion").toLocalDate(),
+                        fechaNacimiento,
                         rs.getBoolean("activo")
                     );
                     deudores.add(alumno);
@@ -213,5 +235,41 @@ public class AlumnoDAO {
             }
         }
         return deudores;
+    }
+
+    /**
+     * Obtiene un alumno por su DNI.
+     * Útil para validaciones y búsqueda.
+     * @param dni El DNI del alumno a buscar.
+     * @return El objeto Alumno si se encuentra, o null si no existe.
+     * @throws SQLException Si ocurre un error de base de datos.
+     */
+    public Alumno obtenerPorDni(String dni) throws SQLException {
+        String sql = "SELECT id_alumno, nombre, apellido, dni, telefono, email, fecha_nacimiento, activo FROM alumnos WHERE dni = ?";
+        Alumno alumno = null;
+
+        try (Connection conn = DatabaseConnection.getConnection();
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+
+            pstmt.setString(1, dni);
+
+            try (ResultSet rs = pstmt.executeQuery()) {
+                if (rs.next()) {
+                    LocalDate fechaNacimiento = rs.getDate("fecha_nacimiento") != null ? rs.getDate("fecha_nacimiento").toLocalDate() : null;
+
+                    alumno = new Alumno(
+                        rs.getInt("id_alumno"),
+                        rs.getString("nombre"),
+                        rs.getString("apellido"),
+                        rs.getString("dni"),
+                        rs.getString("telefono"),
+                        rs.getString("email"),
+                        fechaNacimiento,
+                        rs.getBoolean("activo")
+                    );
+                }
+            }
+        }
+        return alumno;
     }
 }
